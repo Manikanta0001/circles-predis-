@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head><title>PWA Icon Generator</title></head>
+<body>
+<canvas id="canvas192" width="192" height="192"></canvas>
+<canvas id="canvas512" width="512" height="512"></canvas>
+<script>
+function createIcon(canvasId, size) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext('2d');
+  
+  // Background gradient
+  const gradient = ctx.createLinearGradient(0, 0, size, size);
+  gradient.addColorStop(0, '#6366f1');
+  gradient.addColorStop(1, '#8b5cf6');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+  
+  // White text
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `bold ${size/3}px Arial`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('A', size/2, size/2);
+}
+
+createIcon('canvas192', 192);
+createIcon('canvas512', 512);
+
+// Download links
+const link192 = document.createElement('a');
+link192.download = 'icon-192x192.png';
+link192.href = document.getElementById('canvas192').toDataURL();
+link192.click();
+
+const link512 = document.createElement('a');
+link512.download = 'icon-512x512.png';
+link512.href = document.getElementById('canvas512').toDataURL();
+link512.click();
+</script>
+</body>
+</html>

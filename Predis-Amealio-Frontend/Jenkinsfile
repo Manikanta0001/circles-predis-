@@ -1,0 +1,77 @@
+pipeline {
+  agent any
+
+  environment {
+    DIST_DIR = 'frontend-dist'
+    S3_BUCKET = 'dev-predis.amealio.com'
+    AWS_DEFAULT_REGION = 'ap-south-1'
+    AWS_CREDENTIALS_ID = 'auth-engine/aws-creds'
+  }
+
+  stages {
+    stage('Prepare Workspace') {
+      steps {
+        script {
+          sh '''
+            echo "🧹 Cleaning old workspace before build..."
+            rm -rf ${WORKSPACE}/${DIST_DIR}
+          '''
+        }
+      }
+    }
+
+    stage('Build Frontend in Docker') {
+      steps {
+        script {
+          sh '''
+            set -e
+            echo "🧹 Cleaning Docker build cache..."
+            docker system prune -af || true
+
+            echo "🛠️ Building Docker image for frontend..."
+            docker build --no-cache -t frontend-builder .
+
+            echo "📦 Creating container from image..."
+            docker create --name temp-frontend frontend-builder
+
+            echo "📂 Copying built files from container..."
+            rm -rf ${DIST_DIR}
+            mkdir -p ${DIST_DIR}
+            docker cp temp-frontend:/app/dist/. ${DIST_DIR}/
+
+            echo "🧹 Cleaning up Docker container..."
+            docker rm temp-frontend
+            docker rmi frontend-builder || true
+          '''
+        }
+      }
+    }
+
+    stage('Deploy to S3') {
+      steps {
+        withAWS(credentials: "${AWS_CREDENTIALS_ID}", region: "${AWS_DEFAULT_REGION}") {
+          sh '''
+            set -e
+            echo "🚀 Deploying to S3 bucket: ${S3_BUCKET}"
+            ls -la "${DIST_DIR}"
+            aws s3 cp "${DIST_DIR}/" "s3://${S3_BUCKET}/" --recursive
+          '''
+        }
+      }
+    }
+
+    stage('Cleanup') {
+      steps {
+        script {
+          sh '''
+            echo "🧽 Cleaning Docker artifacts..."
+            docker system prune -a -f || true
+
+            echo "🧹 Cleaning Jenkins workspace..."
+            rm -rf ${WORKSPACE}/* || true
+          '''
+        }
+      }
+    }
+  }
+}

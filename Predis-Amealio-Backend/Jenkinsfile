@@ -1,0 +1,151 @@
+pipeline {
+  agent any
+ 
+  triggers {
+    githubPush()
+  }
+ 
+  stages {
+    stage('Initialize') {
+      steps {
+        withCredentials([
+          string(credentialsId: 'hyderabad_aws_region', variable: 'AWS_REGION'),
+          string(credentialsId: 'auth-engine/aws-account-id', variable: 'AWS_ACCOUNT_ID'),
+          string(credentialsId: 'dev-predis-server-ecr-name', variable: 'ECR_REPOSITORY_NAME'),
+          string(credentialsId: 'dev-predis-server-ecr-url', variable: 'IMAGE_URI'),
+          string(credentialsId: 'dev-predis-server-ec2-host', variable: 'EC2_HOST'),
+          string(credentialsId: 'auth-engine/ec2-user', variable: 'EC2_USER')
+        ]) {
+          script {
+            env.AWS_REGION = AWS_REGION
+            env.AWS_ACCOUNT_ID = AWS_ACCOUNT_ID
+            env.ECR_REPOSITORY_NAME = ECR_REPOSITORY_NAME
+            env.IMAGE_URI = IMAGE_URI
+            env.EC2_HOST = EC2_HOST
+            env.EC2_USER = EC2_USER
+          }
+        }
+      }
+    }
+ 
+    stage('Checkout') {
+      steps {
+        checkout scm
+      }
+    }
+ 
+    stage('Login to ECR') {
+      steps {
+        withCredentials([
+          [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'auth-engine/aws-creds']
+        ]) {
+          sh '''
+            #!/bin/bash
+            echo "🔐 Logging in to Amazon ECR..."
+            aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$IMAGE_URI"
+          '''
+        }
+      }
+    }
+    
+    stage('Delete old ECR Images') {
+      steps {
+        withCredentials([
+          [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'auth-engine/aws-creds']
+        ]) {
+          sh '''
+            echo "🧹 Checking and deleting old ECR images..."
+            image_ids=$(aws ecr list-images \
+              --repository-name "$ECR_REPOSITORY_NAME" \
+              --region "$AWS_REGION" \
+              --query 'imageIds[*]' --output json)
+ 
+            if [ "$image_ids" != "[]" ]; then
+              aws ecr batch-delete-image \
+                --repository-name "$ECR_REPOSITORY_NAME" \
+                --region "$AWS_REGION" \
+                --image-ids "$image_ids"
+            else
+              echo "✅ No previous images to delete"
+            fi
+          '''
+        }
+      }
+    }
+    
+    stage('Free Disk Space') {
+      steps {
+        sh '''
+          echo "🔍 Checking disk usage..."
+          df -h
+    
+          echo "🧹 Pruning Docker system..."
+          docker system prune -af || true
+    
+          echo "🗑️ Cleaning workspace temp files..."
+          rm -rf node_modules || true
+          rm -rf /tmp/* || true
+        '''
+      }
+    }
+    
+    stage('Build & Push Docker Image') {
+      steps {
+        script {
+          env.IMAGE_TAG = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+    
+          sh """
+            echo 🏗️ Building Docker image with tag: ${IMAGE_TAG}
+            docker build --no-cache -t ${IMAGE_URI}:${IMAGE_TAG} .
+    
+            echo 🏷️ Tagging image as latest
+            docker tag ${IMAGE_URI}:${IMAGE_TAG} ${IMAGE_URI}:latest
+    
+            echo 📤 Pushing both tags to ECR
+            docker push ${IMAGE_URI}:${IMAGE_TAG}
+            docker push ${IMAGE_URI}:latest
+          """
+        }
+      }
+    }
+    
+    stage('Deploy to EC2') {
+      steps {
+        sshagent(credentials: ['hyderabad_servers_ssh']) {
+          script {
+            sh """
+    echo 🚀 Connecting to EC2 and deploying container...
+    ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} << 'EOF'
+echo 🔐 Logging in to ECR...
+aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${IMAGE_URI}
+ 
+echo 📥 Pulling latest Docker image...
+docker pull ${IMAGE_URI}:latest
+ 
+echo 🧼 Cleaning up old containers...
+docker stop my-node-app || true
+docker rm my-node-app || true
+ 
+echo "🧹 (Optional) Pruning unused containers/images/volumes..."
+docker container prune -f || true
+docker image prune -af || true
+docker volume prune -f || true
+ 
+echo 🐳 Starting new container...
+docker run -d --env-file .env -p 4000:4000 --name my-node-app ${IMAGE_URI}:latest
+EOF
+            """
+          }
+        }
+      }
+    }
+ 
+ 
+  }
+ 
+  post {
+    failure {
+      echo "❌ Deployment failed. Please check logs above."
+    }
+  }
+}

@@ -1,0 +1,156 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary-bg: #050E33;
+  --color-primary: #40299B;
+  --color-secondary-green: #86EAAA;
+  --color-secondary-lilac: #A988F9;
+  --color-secondary-blue: #0B82E6;
+  --color-accent-orange: #FF871C;
+  --color-error: #FF4C4C;
+  --color-success: #27AE60;
+  --color-disabled: #D3D3D3;
+  --color-border: #C2C2C2;
+  --color-checkbox-primary: #33217C;
+  --color-cta-gradient-start: #5495FF;
+  --color-cta-gradient-end: #7B3FFF;
+  --color-background: #FFFFFF;
+  --color-foreground: #111827;
+}
+
+@layer base {
+  :root {
+    --background: 220 20% 98%;
+    --foreground: 0 0% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 10%;
+    --primary: 256 66% 35%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 216 28% 95%;
+    --secondary-foreground: 0 0% 10%;
+    --muted: 216 28% 95%;
+    --muted-foreground: 0 0% 15%;
+    --accent: 216 28% 95%;
+    --accent-foreground: 0 0% 10%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: 256 66% 35%;
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 220 20% 8%;
+    --foreground: 210 40% 98%;
+    --card: 220 20% 10%;
+    --card-foreground: 210 40% 98%;
+    --popover: 220 20% 10%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 261 86% 59%;
+    --primary-foreground: 220 20% 8%;
+    --secondary: 220 14% 15%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 220 14% 15%;
+    --muted-foreground: 220 9% 65%;
+    --accent: 220 14% 15%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 220 14% 20%;
+    --input: 220 14% 20%;
+    --ring: 261 86% 59%;
+  }
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-feature-settings: "rlig" 1, "calt" 1;
+    font-family: var(--font-poppins), system-ui, sans-serif;
+  }
+
+  /* Ensure text is dark and readable by default */
+  p, span, div, h1, h2, h3, h4, h5, h6, a, label, li, td, th {
+    color: hsl(var(--foreground));
+  }
+  
+  /* Override muted-foreground to be darker and more readable */
+  .text-muted-foreground {
+    color: hsl(0 0% 20%) !important;
+  }
+  
+  /* Buttons with white text should remain white (for gradients) */
+  button.text-white,
+  .text-white,
+  .bg-gradient-primary .text-white,
+  .bg-gradient-accent .text-white {
+    color: white !important;
+  }
+  
+  /* Card titles and headings should be dark */
+  .card-title,
+  h1, h2, h3, h4, h5, h6 {
+    color: hsl(var(--foreground)) !important;
+  }
+  
+  /* Input placeholders should be visible but lighter */
+  ::placeholder {
+    color: hsl(0 0% 40%) !important;
+  }
+}
+
+@layer utilities {
+  .bg-gradient-primary {
+    background-image: linear-gradient(135deg, var(--color-cta-gradient-start), var(--color-cta-gradient-end));
+  }
+
+  .bg-gradient-hero {
+    background-image: radial-gradient(circle at center, var(--color-primary-bg), var(--color-primary-bg));
+  }
+
+  .bg-gradient-accent {
+    background-image: linear-gradient(135deg, var(--color-secondary-lilac), var(--color-accent-orange));
+  }
+
+  .shadow-soft {
+    box-shadow: 0 4px 20px rgba(64, 41, 155, 0.25);
+  }
+
+  .shadow-feature {
+    box-shadow: 0 8px 30px rgba(64, 41, 155, 0.35);
+  }
+
+  @keyframes float {
+    0%, 100% {
+      transform: translateY(0px);
+    }
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+
+  @keyframes pulse-glow {
+    0%, 100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.7;
+    }
+  }
+
+  .animate-float {
+    animation: float 3s ease-in-out infinite;
+  }
+
+  .animate-pulse-glow {
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+}
