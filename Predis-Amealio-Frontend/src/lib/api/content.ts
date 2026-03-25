@@ -28,6 +28,31 @@ export interface ContentItem {
   }>;
 }
 
+export interface DailyTrendPoint {
+  date: string;
+  label: string;
+  views: number;
+  likes: number;
+  shares: number;
+  posts: number;
+}
+
+export interface PlatformBreakdownRow {
+  platform: string;
+  views: number;
+  likes: number;
+  shares: number;
+  posts: number;
+  engagementRate: number;
+}
+
+export interface ContentTypeBreakdownRow {
+  type: string;
+  label: string;
+  count: number;
+  avgEngagement: number;
+}
+
 export interface DashboardStats {
   totalContent: number;
   draftedContent: number;
@@ -37,6 +62,11 @@ export interface DashboardStats {
   totalLikes: number;
   totalShares: number;
   recentContent: ContentItem[];
+  range?: '7d' | '30d' | '90d';
+  rangeDays?: number;
+  dailyTrend?: DailyTrendPoint[];
+  platformBreakdown?: PlatformBreakdownRow[];
+  contentTypeBreakdown?: ContentTypeBreakdownRow[];
 }
 
 export const contentApi = {
@@ -51,9 +81,11 @@ export const contentApi = {
   saveContent: (data: any) =>
     apiClient.post('/merchant/save', data),
 
-  // Get dashboard stats
-  getDashboardStats: () => 
-    apiClient.get<DashboardStats>('/merchant/dashboard'),
+  // Get dashboard stats (optional range: 7d | 30d | 90d)
+  getDashboardStats: (range?: '7d' | '30d' | '90d') =>
+    apiClient.get<DashboardStats>('/merchant/dashboard', {
+      params: range ? { range } : {},
+    }),
 
   // Get content list with optional filter and paging
   getContent: (

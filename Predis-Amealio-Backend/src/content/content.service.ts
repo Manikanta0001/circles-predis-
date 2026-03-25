@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Content } from '../common/entities/content.entity';
 import { Brand } from '../common/entities/brand.entity';
+import { Analytics } from '../common/entities/analytics.entity';
 import { RedisService } from '../common/redis.service';
 import { AIService } from '../integrations/ai/ai.service';
 import { GenerateContentDto } from './dto/generate-content.dto';
@@ -16,6 +17,8 @@ export class ContentService {
     private contentRepository: Repository<Content>,
     @InjectRepository(Brand)
     private brandRepository: Repository<Brand>,
+    @InjectRepository(Analytics)
+    private analyticsRepository: Repository<Analytics>,
     private redis: RedisService,
     private aiService: AIService,
   ) {}
@@ -448,9 +451,11 @@ export class ContentService {
     return this.getContentById(userId, contentId);
   }
 
-  async getDashboardStats(userId: string) {
+  async getDashboardStats(userId: string, rangeQuery?: string) {
     try {
-      // Load user content once so status counting is consistent with Recent Content
+      const range = this.parseDashboardRange(rangeQuery);
+      const { dayKeys, rangeStart } = this.buildDashboardDayWindow(range.days);
+
       const allContent = await this.contentRepository.find({
         where: { userId },
         relations: ['brand', 'analytics'],
@@ -468,21 +473,23 @@ export class ContentService {
         (c) => c.status?.toLowerCase() === 'published',
       ).length;
 
-      // Recent content: last 5 by createdAt
       const recentContent = allContent.slice(0, 5);
 
-      // Calculate analytics totals (mock data for now)
-      const totalViews = recentContent.reduce((sum, content) => {
-        return sum + (content.analytics?.reduce((acc, analytic) => acc + (analytic.views || 0), 0) || 0);
-      }, 0);
+      const totals = this.sumAnalyticsTotals(allContent);
+      const totalViews = totals.views;
+      const totalLikes = totals.likes;
+      const totalShares = totals.shares;
 
-      const totalLikes = recentContent.reduce((sum, content) => {
-        return sum + (content.analytics?.reduce((acc, analytic) => acc + (analytic.likes || 0), 0) || 0);
-      }, 0);
+      const analyticsInRange = await this.analyticsRepository
+        .createQueryBuilder('a')
+        .innerJoinAndSelect('a.content', 'c')
+        .where('c.userId = :userId', { userId })
+        .andWhere('a.recordedAt >= :from', { from: rangeStart })
+        .getMany();
 
-      const totalShares = recentContent.reduce((sum, content) => {
-        return sum + (content.analytics?.reduce((acc, analytic) => acc + (analytic.shares || 0), 0) || 0);
-      }, 0);
+      const dailyTrend = this.buildDailyTrend(dayKeys, analyticsInRange, allContent);
+      const platformBreakdown = this.buildPlatformBreakdown(allContent, dayKeys);
+      const contentTypeBreakdown = this.buildContentTypeBreakdown(allContent, dayKeys);
 
       return {
         totalContent,
@@ -493,6 +500,11 @@ export class ContentService {
         totalLikes,
         totalShares,
         recentContent,
+        range: range.key,
+        rangeDays: range.days,
+        dailyTrend,
+        platformBreakdown,
+        contentTypeBreakdown,
       };
     } catch (error: any) {
       console.error('getDashboardStats error:', {
@@ -502,5 +514,172 @@ export class ContentService {
       });
       throw error;
     }
+  }
+
+  private parseDashboardRange(rangeQuery?: string): { key: '7d' | '30d' | '90d'; days: number } {
+    const r = (rangeQuery || '30d').toLowerCase().trim();
+    if (r === '7d' || r === '7') return { key: '7d', days: 7 };
+    if (r === '90d' || r === '90') return { key: '90d', days: 90 };
+    return { key: '30d', days: 30 };
+  }
+
+  private buildDashboardDayWindow(days: number): {
+    dayKeys: string[];
+    rangeStart: Date;
+  } {
+    const start = new Date();
+    start.setUTCDate(start.getUTCDate() - (days - 1));
+    start.setUTCHours(0, 0, 0, 0);
+
+    const dayKeys: string[] = [];
+    for (let i = 0; i < days; i++) {
+      const d = new Date(start);
+      d.setUTCDate(start.getUTCDate() + i);
+      dayKeys.push(d.toISOString().slice(0, 10));
+    }
+
+    return { dayKeys, rangeStart: start };
+  }
+
+  private sumAnalyticsTotals(contentList: Content[]): { views: number; likes: number; shares: number } {
+    let views = 0;
+    let likes = 0;
+    let shares = 0;
+    for (const c of contentList) {
+      for (const a of c.analytics || []) {
+        views += a.views || 0;
+        likes += a.likes || 0;
+        shares += a.shares || 0;
+      }
+    }
+    return { views, likes, shares };
+  }
+
+  private buildDailyTrend(
+    dayKeys: string[],
+    analyticsInRange: Analytics[],
+    allContent: Content[],
+  ) {
+    const engagementByDay = new Map<string, { views: number; likes: number; shares: number }>();
+    const postsByDay = new Map<string, number>();
+
+    for (const k of dayKeys) {
+      engagementByDay.set(k, { views: 0, likes: 0, shares: 0 });
+      postsByDay.set(k, 0);
+    }
+
+    for (const a of analyticsInRange) {
+      const key = new Date(a.recordedAt).toISOString().slice(0, 10);
+      if (!engagementByDay.has(key)) continue;
+      const cur = engagementByDay.get(key)!;
+      cur.views += a.views || 0;
+      cur.likes += a.likes || 0;
+      cur.shares += a.shares || 0;
+    }
+
+    for (const c of allContent) {
+      const key = new Date(c.createdAt).toISOString().slice(0, 10);
+      if (!postsByDay.has(key)) continue;
+      postsByDay.set(key, (postsByDay.get(key) || 0) + 1);
+    }
+
+    return dayKeys.map((date) => {
+      const e = engagementByDay.get(date)!;
+      const posts = postsByDay.get(date) || 0;
+      return {
+        date,
+        label: this.formatChartDayLabel(date),
+        views: e.views,
+        likes: e.likes,
+        shares: e.shares,
+        posts,
+      };
+    });
+  }
+
+  private formatChartDayLabel(isoDate: string): string {
+    const d = new Date(`${isoDate}T12:00:00.000Z`);
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+
+  private normalizePlatformLabel(platform: string): string {
+    const p = platform.trim();
+    if (!p) return 'Unknown';
+    return p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
+  }
+
+  private buildPlatformBreakdown(allContent: Content[], dayKeys: string[]) {
+    const map = new Map<
+      string,
+      { views: number; likes: number; shares: number; posts: number }
+    >();
+
+    for (const c of allContent) {
+      if (!c.platform) continue;
+      const label = this.normalizePlatformLabel(c.platform);
+      if (!map.has(label)) {
+        map.set(label, { views: 0, likes: 0, shares: 0, posts: 0 });
+      }
+      const row = map.get(label)!;
+
+      const createdKey = new Date(c.createdAt).toISOString().slice(0, 10);
+      if (dayKeys.includes(createdKey)) {
+        row.posts += 1;
+      }
+
+      for (const a of c.analytics || []) {
+        const ak = new Date(a.recordedAt).toISOString().slice(0, 10);
+        if (!dayKeys.includes(ak)) continue;
+        row.views += a.views || 0;
+        row.likes += a.likes || 0;
+        row.shares += a.shares || 0;
+      }
+    }
+
+    return Array.from(map.entries())
+      .map(([platform, v]) => {
+        const engagementRate =
+          v.views > 0 ? Math.round(((v.likes + v.shares) / v.views) * 1000) / 10 : 0;
+        return {
+          platform,
+          views: v.views,
+          likes: v.likes,
+          shares: v.shares,
+          posts: v.posts,
+          engagementRate,
+        };
+      })
+      .sort((a, b) => a.platform.localeCompare(b.platform));
+  }
+
+  private buildContentTypeBreakdown(allContent: Content[], dayKeys: string[]) {
+    const map = new Map<string, { count: number; engagement: number }>();
+
+    for (const c of allContent) {
+      const createdKey = new Date(c.createdAt).toISOString().slice(0, 10);
+      if (!dayKeys.includes(createdKey)) continue;
+
+      const type = (c.type || 'other').toLowerCase();
+      if (!map.has(type)) {
+        map.set(type, { count: 0, engagement: 0 });
+      }
+      const row = map.get(type)!;
+      row.count += 1;
+
+      for (const a of c.analytics || []) {
+        const ak = new Date(a.recordedAt).toISOString().slice(0, 10);
+        if (!dayKeys.includes(ak)) continue;
+        row.engagement += (a.views || 0) + (a.likes || 0) + (a.shares || 0);
+      }
+    }
+
+    return Array.from(map.entries())
+      .map(([type, v]) => ({
+        type,
+        label: type.charAt(0).toUpperCase() + type.slice(1),
+        count: v.count,
+        avgEngagement: v.count > 0 ? Math.round((v.engagement / v.count) * 10) / 10 : 0,
+      }))
+      .sort((a, b) => b.count - a.count);
   }
 }

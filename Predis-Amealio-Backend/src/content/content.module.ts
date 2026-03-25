@@ -8,11 +8,13 @@ import { User } from '../common/entities/user.entity';
 import { Analytics } from '../common/entities/analytics.entity';
 import { RedisService } from '../common/redis.service';
 import { AIModule } from '../integrations/ai/ai.module';
+import { AnalyticsModule } from '../analytics/analytics.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Content, Brand, User, Analytics]),
     AIModule,
+    AnalyticsModule,
   ],
   controllers: [ContentController],
   providers: [ContentService, RedisService],

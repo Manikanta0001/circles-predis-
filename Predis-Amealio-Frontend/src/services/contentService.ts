@@ -27,6 +27,30 @@ export interface DashboardStats {
   totalLikes: number;
   totalShares: number;
   recentContent: Content[];
+  range?: '7d' | '30d' | '90d';
+  rangeDays?: number;
+  dailyTrend?: Array<{
+    date: string;
+    label: string;
+    views: number;
+    likes: number;
+    shares: number;
+    posts: number;
+  }>;
+  platformBreakdown?: Array<{
+    platform: string;
+    views: number;
+    likes: number;
+    shares: number;
+    posts: number;
+    engagementRate: number;
+  }>;
+  contentTypeBreakdown?: Array<{
+    type: string;
+    label: string;
+    count: number;
+    avgEngagement: number;
+  }>;
 }
 
 class ContentService {

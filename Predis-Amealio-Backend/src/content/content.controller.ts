@@ -1,13 +1,17 @@
-import { Controller, Post, Get, Delete, Body, Param, Query, UseGuards, Request, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Body, Param, Query, UseGuards, Request, BadRequestException, NotFoundException } from '@nestjs/common';
 import { ContentService } from './content.service';
 import { GenerateContentDto } from './dto/generate-content.dto';
 import { SaveContentDto } from './dto/save-content.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AnalyticsService } from '../analytics/analytics.service';
 
 @Controller('merchant')
 @UseGuards(JwtAuthGuard)
 export class ContentController {
-  constructor(private contentService: ContentService) {}
+  constructor(
+    private contentService: ContentService,
+    private analyticsService: AnalyticsService,
+  ) {}
 
   @Post('generate')
   async generate(@Request() req, @Body() dto: GenerateContentDto) {
@@ -25,9 +29,9 @@ export class ContentController {
   }
 
   @Get('dashboard')
-  async getDashboard(@Request() req) {
+  async getDashboard(@Request() req, @Query('range') range?: string) {
     try {
-      return await this.contentService.getDashboardStats(req.user.userId);
+      return await this.contentService.getDashboardStats(req.user.userId, range);
     } catch (error: any) {
       console.error('getDashboard error:', {
         userId: req.user?.userId,
@@ -76,5 +80,19 @@ export class ContentController {
       id,
       scheduledDate,
     );
+  }
+
+  /**
+   * DEV-ONLY: Seed demo analytics for the logged-in merchant so charts render locally.
+   * Example: POST /api/merchant/dev/seed-analytics?days=30
+   */
+  @Post('dev/seed-analytics')
+  async seedDemoAnalytics(@Request() req, @Query('days') days?: string) {
+    if (process.env.NODE_ENV && process.env.NODE_ENV !== 'development') {
+      throw new NotFoundException();
+    }
+
+    const parsedDays = days ? parseInt(days, 10) : 30;
+    return this.analyticsService.seedDemoAnalyticsForUser(req.user.userId, parsedDays);
   }
 }
