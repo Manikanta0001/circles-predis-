@@ -102,3 +102,30 @@ Add charts and visual analytics to the merchant dashboard so users can see engag
 
 ### Dev-only UI preview (dummy platform stacked bars)
 - Updated `PlatformBreakdownChart` to optionally render a **demo preview** stacked bar dataset in development when platforms exist but all `views/likes/shares` are 0.
+
+---
+
+## Task 6 - Merchant dashboard quick actions
+
+### Goal
+Add a “Quick actions” section to the merchant dashboard so users can start the most common workflows in 1 click (high-utility shortcuts).
+
+### What was implemented
+**Frontend (`Predis-Amealio-Frontend`)**
+- Added `QuickActions` tile grid component: `src/components/dashboard/QuickActions.tsx`
+- Rendered it on the merchant dashboard: `src/app/merchant/dashboard/page.tsx`
+- Each tile deep-links to existing routes (Create, Calendar, Library, Analytics) and can pass preset query params.
+
+**Create presets (`/merchant/create`)**
+- Extended `src/app/merchant/create/page.tsx` to read preset query params when not editing an existing item:
+  - `type`, `platform`, `textType`, `tone`, `aspectRatio`, `videoType`, `duration`, optional `prompt`
+- Presets set sensible defaults so the user lands with steps pre-selected.
+
+### Included quick actions
+- Create content
+- Generate caption (text/caption/Instagram)
+- Generate hashtags (text/hashtags/LinkedIn)
+- Create image (image/Instagram/1:1)
+- View calendar
+- Content library
+- Analytics

@@ -9,6 +9,7 @@ import { contentApi, DashboardStats } from '@/lib/api/content';
 import { EngagementTrendChart } from '@/components/dashboard/EngagementTrendChart';
 import { PlatformBreakdownChart } from '@/components/dashboard/PlatformBreakdownChart';
 import { ContentTypeChart } from '@/components/dashboard/ContentTypeChart';
+import { QuickActions } from '@/components/dashboard/QuickActions';
 import {
   Select,
   SelectContent,
@@ -172,6 +173,8 @@ export default function MerchantDashboardPage() {
             );
           })}
         </div>
+
+        <QuickActions />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
           <EngagementTrendChart data={dailyTrend} rangeDays={rangeDays} />

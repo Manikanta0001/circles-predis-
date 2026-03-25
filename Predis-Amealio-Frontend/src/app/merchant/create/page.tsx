@@ -145,6 +145,67 @@ export default function CreateContentPage() {
 
   useEffect(() => {
     const id = searchParams.get('id');
+    if (id) return; // edit mode handled below
+
+    const type = searchParams.get('type')?.toLowerCase() as ContentType | null;
+    const platformParam = searchParams.get('platform')?.toLowerCase() as Platform | null;
+    const textTypeParam = searchParams.get('textType')?.toLowerCase() as TextType | null;
+    const toneParam = searchParams.get('tone')?.toLowerCase() as Tone | null;
+    const aspectRatioParam = searchParams.get('aspectRatio') as AspectRatio | null;
+    const videoTypeParam = searchParams.get('videoType')?.toLowerCase() as VideoType | null;
+    const durationParam = searchParams.get('duration')?.toLowerCase() as Duration | null;
+    const promptParam = searchParams.get('prompt');
+
+    if (type && ['text', 'image', 'video'].includes(type)) {
+      setContentType(type);
+      // reset dependent choices when type changes via preset
+      setPlatform(null);
+      setTextType(null);
+      setAspectRatio(null);
+      setVideoType(null);
+      setDuration(null);
+
+      if (type === 'text') {
+        setTextType('caption');
+      } else if (type === 'image') {
+        setAspectRatio('1:1');
+      } else if (type === 'video') {
+        setVideoType('short-video');
+        setDuration('10s');
+      }
+    }
+
+    if (platformParam && ['instagram', 'facebook', 'linkedin'].includes(platformParam)) {
+      setPlatform(platformParam);
+    }
+
+    if (toneParam && ['professional', 'casual'].includes(toneParam)) {
+      setTone(toneParam);
+    }
+
+    if (textTypeParam && ['caption', 'hashtags', 'long-post'].includes(textTypeParam)) {
+      setTextType(textTypeParam);
+    }
+
+    if (aspectRatioParam && ['1:1', '4:5', '9:16'].includes(aspectRatioParam)) {
+      setAspectRatio(aspectRatioParam);
+    }
+
+    if (videoTypeParam && ['short-video', 'reel-script', 'script-only'].includes(videoTypeParam)) {
+      setVideoType(videoTypeParam);
+    }
+
+    if (durationParam && ['5s', '10s', '15s'].includes(durationParam)) {
+      setDuration(durationParam);
+    }
+
+    if (typeof promptParam === 'string' && promptParam.trim().length > 0) {
+      setPrompt(promptParam.trim());
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    const id = searchParams.get('id');
     if (!id) return;
 
     async function loadExistingContent() {
