@@ -2,6 +2,18 @@ import { Injectable, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 
+type TextProvider = 'ollama' | 'openai' | 'hf';
+
+export interface TextGenerationMeta {
+  textModelUsed: string;
+  fallbackUsed: boolean;
+}
+
+export interface TextGenerationResult {
+  text: string;
+  meta: TextGenerationMeta;
+}
+
 @Injectable()
 export class AIService {
   private readonly logger = new Logger(AIService.name);
@@ -15,6 +27,8 @@ export class AIService {
   private readonly hfToken: string;
   private readonly hfDefaultTextModel: string;
   private readonly hfDefaultImageModel: string;
+  private readonly openAiApiKey: string;
+  private readonly openAiDefaultModel: string;
 
   constructor(private configService: ConfigService) {
     this.ollamaBaseUrl = this.configService.get('OLLAMA_BASE_URL') || 'http://localhost:11434';
@@ -22,71 +36,169 @@ export class AIService {
 
     this.imageApiBaseUrl = 'http://54.88.119.163:7860';
 
-    this.hfToken = this.configService.get<string>('HUGGINGFACE_API_TOKEN')!;
+    this.hfToken = this.configService.get<string>('HUGGINGFACE_API_TOKEN') || '';
     this.hfDefaultTextModel =
       this.configService.get<string>('HF_TEXT_MODEL') || 'HuggingFaceH4/zephyr-7b-beta';
     this.hfDefaultImageModel =
       this.configService.get<string>('HF_IMAGE_MODEL') || 'stabilityai/sdxl-turbo';
+    this.openAiApiKey = this.configService.get<string>('OPENAI_API_KEY') || '';
+    this.openAiDefaultModel = this.configService.get<string>('OPENAI_TEXT_MODEL') || 'gpt-4o-mini';
   }
 
   /* ----------------------------------------------------------
       TEXT GENERATION (Local LLaMA via Ollama)
     ---------------------------------------------------------- */
-  async generateText(
-    prompt: string,
-    model?: string,
-    maxTokens: number = 500
-  ): Promise<string> {
-    // Use explicitly provided model or fall back to the default local model
-    const modelId = model || this.ollamaModel || 'phi3:mini';
+  private normalizeProvider(value?: string): TextProvider {
+    const selected = (value || '').trim().toLowerCase();
+    if (selected === 'gpt' || selected.startsWith('openai')) return 'openai';
+    if (selected === 'hf' || selected === 'huggingface' || selected.startsWith('hf:')) return 'hf';
+    return 'ollama';
+  }
 
-    try {
-      const response = await axios.post(
-        `${this.ollamaBaseUrl}/api/chat`,
-        {
-          model: modelId,
-          messages: [
-            {
-              role: 'user',
-              content: prompt,
-            },
-          ],
-          stream: false,
-          options: {
-            // Ollama-specific generation options; maxTokens is a soft cap
-            num_predict: maxTokens,
-          },
+  private getTextFallbackChain(selectedModel?: string): TextProvider[] {
+    const primary = this.normalizeProvider(selectedModel);
+    if (primary === 'openai') return ['openai', 'ollama', 'hf'];
+    if (primary === 'hf') return ['hf', 'openai', 'ollama'];
+    return ['ollama', 'openai', 'hf'];
+  }
+
+  private resolveModelForProvider(provider: TextProvider, selectedModel?: string): string {
+    const selected = (selectedModel || '').trim();
+    const lower = selected.toLowerCase();
+
+    if (provider === 'ollama') {
+      if (selected && !['llama', 'gpt', 'openai', 'hf', 'huggingface'].includes(lower)) return selected;
+      return this.ollamaModel || 'phi3:mini';
+    }
+
+    if (provider === 'openai') {
+      if (selected.startsWith('openai:')) return selected.split(':').slice(1).join(':') || this.openAiDefaultModel;
+      if (selected && lower.startsWith('gpt-')) return selected;
+      if (selected && lower.startsWith('o')) return selected;
+      return this.openAiDefaultModel;
+    }
+
+    if (selected.startsWith('hf:')) return selected.split(':').slice(1).join(':') || this.hfDefaultTextModel;
+    return this.hfDefaultTextModel;
+  }
+
+  private parseTextResponse(data: any): string | null {
+    const text =
+      data?.message?.content ||
+      (Array.isArray(data?.choices) && data.choices[0]?.message?.content) ||
+      data?.generated_text ||
+      (Array.isArray(data) && data[0]?.generated_text) ||
+      (typeof data === 'string' ? data : null);
+    return text?.trim() ? text.trim() : null;
+  }
+
+  private async generateWithOllama(prompt: string, modelId: string, maxTokens: number): Promise<string> {
+    const response = await axios.post(
+      `${this.ollamaBaseUrl}/api/chat`,
+      {
+        model: modelId,
+        messages: [{ role: 'user', content: prompt }],
+        stream: false,
+        options: { num_predict: maxTokens },
+      },
+      { timeout: 120000 },
+    );
+
+    const text = this.parseTextResponse(response.data);
+    if (!text) throw new Error('Empty response from Ollama');
+    return text;
+  }
+
+  private async generateWithOpenAI(prompt: string, modelId: string, maxTokens: number): Promise<string> {
+    if (!this.openAiApiKey) throw new Error('OPENAI_API_KEY is not configured');
+
+    const response = await axios.post(
+      'https://api.openai.com/v1/chat/completions',
+      {
+        model: modelId,
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: maxTokens,
+      },
+      {
+        timeout: 90000,
+        headers: {
+          Authorization: `Bearer ${this.openAiApiKey}`,
+          'Content-Type': 'application/json',
         },
-        {
-          timeout: 120000,
+      },
+    );
+
+    const text = this.parseTextResponse(response.data);
+    if (!text) throw new Error('Empty response from OpenAI');
+    return text;
+  }
+
+  private async generateWithHuggingFace(prompt: string, modelId: string, maxTokens: number): Promise<string> {
+    if (!this.hfToken) throw new Error('HUGGINGFACE_API_TOKEN is not configured');
+
+    const response = await axios.post(
+      `https://api-inference.huggingface.co/models/${modelId}`,
+      {
+        inputs: prompt,
+        parameters: {
+          max_new_tokens: maxTokens,
+          return_full_text: false,
+        },
+      },
+      {
+        timeout: 120000,
+        headers: {
+          Authorization: `Bearer ${this.hfToken}`,
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+
+    const text = this.parseTextResponse(response.data);
+    if (!text) throw new Error('Empty response from Hugging Face');
+    return text;
+  }
+
+  async generateText(prompt: string, model?: string, maxTokens: number = 500): Promise<TextGenerationResult> {
+    const chain = this.getTextFallbackChain(model);
+    const errors: string[] = [];
+
+    for (let i = 0; i < chain.length; i++) {
+      const provider = chain[i];
+      const modelId = this.resolveModelForProvider(provider, model);
+
+      try {
+        let text: string;
+        if (provider === 'ollama') {
+          text = await this.generateWithOllama(prompt, modelId, maxTokens);
+        } else if (provider === 'openai') {
+          text = await this.generateWithOpenAI(prompt, modelId, maxTokens);
+        } else {
+          text = await this.generateWithHuggingFace(prompt, modelId, maxTokens);
         }
-      );
 
-      const data = response.data;
-
-      // Support both the standard Ollama response shape and a generic one
-      const text =
-        data?.message?.content ||
-        (Array.isArray(data?.choices) && data.choices[0]?.message?.content) ||
-        (typeof data === 'string' ? data : null);
-
-      if (!text?.trim()) {
-        throw new Error('Empty response from local LLaMA text generation');
-      }
-
-      return text.trim();
-    } catch (error: any) {
-      this.logger.error('Local LLaMA text generation error', error.response?.data || error.message);
-      throw new HttpException(
-        `Failed to generate text content: ${
+        return {
+          text,
+          meta: {
+            textModelUsed: `${provider}:${modelId}`,
+            fallbackUsed: i > 0,
+          },
+        };
+      } catch (error: any) {
+        const message =
           error.response?.data?.error ||
           error.response?.data?.message ||
           error.message ||
-          'Unknown error'
-        }`,
-        error.response?.status || HttpStatus.INTERNAL_SERVER_ERROR
-      );
+          'Unknown error';
+        errors.push(`${provider}:${message}`);
+        this.logger.warn(`Text generation failed for ${provider}:${modelId} -> ${message}`);
+      }
     }
+
+    throw new HttpException(
+      `Failed to generate text content. Providers tried: ${errors.join(' | ')}`,
+      HttpStatus.INTERNAL_SERVER_ERROR,
+    );
   }
 
   /* ----------------------------------------------------------
@@ -326,6 +438,7 @@ Guidelines: ${guidelines}
 ${outputInstructions}
 `;
 
-    return this.generateText(prompt, model, 300);
+    const result = await this.generateText(prompt, model, 300);
+    return result.text;
   }
 }

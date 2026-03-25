@@ -24,6 +24,7 @@ export class ContentService {
     let generatedText = null;
     let generatedImage = null;
     let generatedVideo = null;
+    let textMeta: { textModelUsed: string; fallbackUsed: boolean } | null = null;
 
     let brandName = '';
     if (dto.brandId) {
@@ -37,9 +38,10 @@ export class ContentService {
 
     try {
       if (dto.type === 'text') {
-        const modelForText = dto.model === 'llama' ? undefined : dto.model;
         const finalPrompt = this.buildTextPrompt(dto, brandName);
-        generatedText = await this.aiService.generateText(finalPrompt, modelForText, 180);
+        const textResult = await this.aiService.generateText(finalPrompt, dto.model, 180);
+        generatedText = textResult.text;
+        textMeta = textResult.meta;
         if ((dto.textType || 'caption') === 'hashtags' && generatedText) {
           const range = this.getHashtagCountRange((dto.platform || '').toLowerCase());
           generatedText = this.cleanHashtags(generatedText, range.max);
@@ -93,6 +95,7 @@ export class ContentService {
       platform: dto.platform,
       brandId: dto.brandId,
       output: generatedText || generatedImage || generatedVideo || null,
+      meta: textMeta ? { ...textMeta } : undefined,
     };
   }
 
@@ -311,11 +314,10 @@ export class ContentService {
       contextLines.join('\n'),
     ].join('\n');
 
-    const modelForText = dto.model === 'llama' ? undefined : dto.model;
-    const raw = await this.aiService.generateText(promptForAI, modelForText, 200);
-    const suggestions = this.parsePromptSuggestions(raw).slice(0, 5);
+    const textResult = await this.aiService.generateText(promptForAI, dto.model, 200);
+    const suggestions = this.parsePromptSuggestions(textResult.text).slice(0, 5);
 
-    const response = { suggestions };
+    const response = { suggestions, meta: textResult.meta };
     await this.redis.set(cacheKey, JSON.stringify(response), 300);
     return response;
   }
