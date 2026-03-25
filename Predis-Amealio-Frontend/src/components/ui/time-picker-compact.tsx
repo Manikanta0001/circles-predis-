@@ -16,6 +16,24 @@ export function TimePickerCompact({ value, onChange, onClose }: TimePickerCompac
   const [minutes, setMinutes] = useState<string>('00');
   const [period, setPeriod] = useState<'AM' | 'PM'>('AM');
 
+  const computeTimeString = (h12: string, m: string, p: 'AM' | 'PM') => {
+    const hh = parseInt(h12, 10);
+    const mm = parseInt(m, 10);
+    const safeH12 = Number.isFinite(hh) ? Math.min(12, Math.max(1, hh)) : 12;
+    const safeM = Number.isFinite(mm) ? Math.min(59, Math.max(0, mm)) : 0;
+
+    const h24 =
+      p === 'AM'
+        ? safeH12 === 12
+          ? 0
+          : safeH12
+        : safeH12 === 12
+          ? 12
+          : safeH12 + 12;
+
+    return `${String(h24).padStart(2, '0')}:${String(safeM).padStart(2, '0')}`;
+  };
+
   useEffect(() => {
     if (value) {
       const [h, m] = value.split(':').map(Number);
@@ -28,6 +46,12 @@ export function TimePickerCompact({ value, onChange, onClose }: TimePickerCompac
       }
     }
   }, [value]);
+
+  // Live-update selected time so parent UI enables Schedule immediately.
+  useEffect(() => {
+    onChange(computeTimeString(hours, minutes, period));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hours, minutes, period]);
 
   const handleHourChange = (val: string) => {
     const num = parseInt(val) || 0;
@@ -64,12 +88,6 @@ export function TimePickerCompact({ value, onChange, onClose }: TimePickerCompac
   };
 
   const handleConfirm = () => {
-    const h24 = period === 'AM' 
-      ? parseInt(hours) === 12 ? 0 : parseInt(hours)
-      : parseInt(hours) === 12 ? 12 : parseInt(hours) + 12;
-    
-    const timeString = `${String(h24).padStart(2, '0')}:${minutes}`;
-    onChange(timeString);
     onClose();
   };
 

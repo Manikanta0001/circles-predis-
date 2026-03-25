@@ -10,6 +10,9 @@ import { EngagementTrendChart } from '@/components/dashboard/EngagementTrendChar
 import { PlatformBreakdownChart } from '@/components/dashboard/PlatformBreakdownChart';
 import { ContentTypeChart } from '@/components/dashboard/ContentTypeChart';
 import { QuickActions } from '@/components/dashboard/QuickActions';
+import { UpcomingScheduledWidget } from '@/components/dashboard/widgets/UpcomingScheduledWidget';
+import { RecentDraftsWidget } from '@/components/dashboard/widgets/RecentDraftsWidget';
+import { CreditsPlanWidget } from '@/components/dashboard/widgets/CreditsPlanWidget';
 import {
   Select,
   SelectContent,
@@ -78,6 +81,7 @@ export default function MerchantDashboardPage() {
   const platformBreakdown = stats?.platformBreakdown ?? [];
   const contentTypeBreakdown = stats?.contentTypeBreakdown ?? [];
   const rangeDays = stats?.rangeDays ?? (range === '7d' ? 7 : range === '90d' ? 90 : 30);
+  const widgets = stats?.widgets;
 
   if (loading) {
     return (
@@ -184,6 +188,22 @@ export default function MerchantDashboardPage() {
         <div className="mb-6 max-w-lg">
           <ContentTypeChart data={contentTypeBreakdown} />
         </div>
+
+        <Card className="mb-6">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Widgets</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <UpcomingScheduledWidget items={widgets?.upcomingScheduled ?? []} />
+              <RecentDraftsWidget items={widgets?.recentDrafts ?? []} />
+              <CreditsPlanWidget
+                credits={widgets?.credits ?? 0}
+                subscriptionTier={widgets?.subscriptionTier ?? 'free'}
+              />
+            </div>
+          </CardContent>
+        </Card>
 
         <RecentContentSection
           onContentClick={handleContentClick}

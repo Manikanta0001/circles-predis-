@@ -129,3 +129,26 @@ Add a “Quick actions” section to the merchant dashboard so users can start t
 - View calendar
 - Content library
 - Analytics
+
+---
+
+## Task 8 - Merchant dashboard widgets
+
+### Goal
+Add dashboard widgets (self-contained info cards) to surface the most important information and shortcuts at a glance.
+
+### What was implemented
+**Backend (`Predis-Amealio-Backend`)**
+- Extended `GET /api/merchant/dashboard` to include a `widgets` payload:
+  - `upcomingScheduled` (next 5 scheduled items)
+  - `recentDrafts` (latest 3 drafts)
+  - `topContent` (top 3 items by in-range engagement totals)
+  - `credits`, `subscriptionTier`
+
+**Frontend (`Predis-Amealio-Frontend`)**
+- Updated `DashboardStats` type to include `widgets`.
+- Added widget components under `src/components/dashboard/widgets/`:
+  - `UpcomingScheduledWidget`
+  - `RecentDraftsWidget`
+  - `CreditsPlanWidget`
+- Rendered the widgets grid on `/merchant/dashboard` below charts.

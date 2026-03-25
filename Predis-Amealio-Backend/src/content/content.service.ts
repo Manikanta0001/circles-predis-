@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { Content } from '../common/entities/content.entity';
 import { Brand } from '../common/entities/brand.entity';
 import { Analytics } from '../common/entities/analytics.entity';
+import { User } from '../common/entities/user.entity';
 import { RedisService } from '../common/redis.service';
 import { AIService } from '../integrations/ai/ai.service';
 import { GenerateContentDto } from './dto/generate-content.dto';
@@ -19,6 +20,8 @@ export class ContentService {
     private brandRepository: Repository<Brand>,
     @InjectRepository(Analytics)
     private analyticsRepository: Repository<Analytics>,
+    @InjectRepository(User)
+    private userRepository: Repository<User>,
     private redis: RedisService,
     private aiService: AIService,
   ) {}
@@ -462,6 +465,11 @@ export class ContentService {
         order: { createdAt: 'DESC' },
       });
 
+      const user = await this.userRepository.findOne({
+        where: { id: userId },
+        select: ['id', 'credits', 'subscriptionTier'],
+      });
+
       const totalContent = allContent.length;
       const draftedContent = allContent.filter(
         (c) => c.status?.toLowerCase() === 'draft',
@@ -491,6 +499,16 @@ export class ContentService {
       const platformBreakdown = this.buildPlatformBreakdown(allContent, dayKeys);
       const contentTypeBreakdown = this.buildContentTypeBreakdown(allContent, dayKeys);
 
+      const widgets = await this.buildDashboardWidgets({
+        userId,
+        dayKeys,
+        rangeStart,
+        allContent,
+        analyticsInRange,
+        credits: user?.credits ?? 0,
+        subscriptionTier: user?.subscriptionTier ?? 'free',
+      });
+
       return {
         totalContent,
         draftedContent,
@@ -505,6 +523,7 @@ export class ContentService {
         dailyTrend,
         platformBreakdown,
         contentTypeBreakdown,
+        widgets,
       };
     } catch (error: any) {
       console.error('getDashboardStats error:', {
@@ -681,5 +700,118 @@ export class ContentService {
         avgEngagement: v.count > 0 ? Math.round((v.engagement / v.count) * 10) / 10 : 0,
       }))
       .sort((a, b) => b.count - a.count);
+  }
+
+  private async buildDashboardWidgets(args: {
+    userId: string;
+    dayKeys: string[];
+    rangeStart: Date;
+    allContent: Content[];
+    analyticsInRange: Analytics[];
+    credits: number;
+    subscriptionTier: string;
+  }) {
+    const now = new Date();
+
+    const upcomingScheduled = await this.contentRepository.find({
+      where: { userId: args.userId, status: 'scheduled' as any },
+      order: { scheduledAt: 'ASC' },
+      take: 5,
+      relations: ['brand'],
+    });
+
+    const upcomingScheduledFiltered = upcomingScheduled
+      .filter((c) => c.scheduledAt && new Date(c.scheduledAt).getTime() >= now.getTime())
+      .slice(0, 5);
+
+    const recentDrafts = await this.contentRepository.find({
+      where: { userId: args.userId, status: 'draft' as any },
+      order: { updatedAt: 'DESC' },
+      take: 3,
+      relations: ['brand'],
+    });
+
+    // Top content: aggregate analytics in-range by contentId.
+    const engagementMap = new Map<
+      string,
+      { views: number; likes: number; shares: number; comments: number }
+    >();
+
+    for (const a of args.analyticsInRange) {
+      const id = a.contentId;
+      if (!id) continue;
+      if (!engagementMap.has(id)) {
+        engagementMap.set(id, { views: 0, likes: 0, shares: 0, comments: 0 });
+      }
+      const row = engagementMap.get(id)!;
+      row.views += a.views || 0;
+      row.likes += a.likes || 0;
+      row.shares += a.shares || 0;
+      row.comments += a.comments || 0;
+    }
+
+    const ranked = Array.from(engagementMap.entries())
+      .map(([contentId, totals]) => ({
+        contentId,
+        ...totals,
+        engagement: totals.views + totals.likes + totals.shares + totals.comments,
+      }))
+      .sort((a, b) => b.engagement - a.engagement)
+      .slice(0, 3);
+
+    const topContentIds = ranked.map((r) => r.contentId);
+    const topContentEntities = topContentIds.length
+      ? await this.contentRepository.find({
+          where: topContentIds.map((id) => ({ id, userId: args.userId })) as any,
+          relations: ['brand'],
+        })
+      : [];
+
+    const topContentById = new Map(topContentEntities.map((c) => [c.id, c]));
+
+    const topContent = ranked
+      .map((r) => {
+        const content = topContentById.get(r.contentId);
+        if (!content) return null;
+        return {
+          id: content.id,
+          type: content.type,
+          platform: content.platform,
+          prompt: content.prompt,
+          createdAt: content.createdAt,
+          status: content.status,
+          brand: content.brand ? { id: content.brand.id, name: content.brand.name } : null,
+          metrics: {
+            views: r.views,
+            likes: r.likes,
+            shares: r.shares,
+            comments: r.comments,
+            engagement: r.engagement,
+          },
+        };
+      })
+      .filter(Boolean);
+
+    return {
+      upcomingScheduled: upcomingScheduledFiltered.map((c) => ({
+        id: c.id,
+        type: c.type,
+        platform: c.platform,
+        scheduledAt: c.scheduledAt,
+        prompt: c.prompt,
+        brand: c.brand ? { id: c.brand.id, name: c.brand.name } : null,
+      })),
+      recentDrafts: recentDrafts.map((c) => ({
+        id: c.id,
+        type: c.type,
+        platform: c.platform,
+        updatedAt: c.updatedAt,
+        prompt: c.prompt,
+        brand: c.brand ? { id: c.brand.id, name: c.brand.name } : null,
+      })),
+      topContent,
+      credits: args.credits,
+      subscriptionTier: args.subscriptionTier,
+    };
   }
 }

@@ -67,6 +67,42 @@ export interface DashboardStats {
   dailyTrend?: DailyTrendPoint[];
   platformBreakdown?: PlatformBreakdownRow[];
   contentTypeBreakdown?: ContentTypeBreakdownRow[];
+  widgets?: {
+    upcomingScheduled: Array<{
+      id: string;
+      type: string;
+      platform?: string;
+      scheduledAt?: string;
+      prompt?: string;
+      brand?: { id: string; name: string } | null;
+    }>;
+    recentDrafts: Array<{
+      id: string;
+      type: string;
+      platform?: string;
+      updatedAt?: string;
+      prompt?: string;
+      brand?: { id: string; name: string } | null;
+    }>;
+    topContent: Array<{
+      id: string;
+      type: string;
+      platform?: string;
+      status?: string;
+      createdAt?: string;
+      prompt?: string;
+      brand?: { id: string; name: string } | null;
+      metrics: {
+        views: number;
+        likes: number;
+        shares: number;
+        comments: number;
+        engagement: number;
+      };
+    }>;
+    credits: number;
+    subscriptionTier: string;
+  };
 }
 
 export const contentApi = {
